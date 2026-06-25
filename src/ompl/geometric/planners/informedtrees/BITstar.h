@@ -166,6 +166,14 @@ namespace ompl
             /** \brief Get results. */
             void getPlannerData(base::PlannerData &data) const override;
 
+            /** \brief Provide a warm-start path (states ordered start-to-goal) to seed the next
+             * solve(). The states are copied. At the next solve() the maximal collision-free prefix
+             * (validated against the current state validity and motion checkers) is connected as a
+             * subtree rooted at the start vertex, so the search extends from prior progress instead
+             * of rediscovering connectivity. This sets no incumbent and cannot affect optimality;
+             * an empty path clears any pending one. */
+            void setWarmStartPath(const std::vector<const base::State *> &path);
+
             // ---
             // Debugging info.
             // ---
@@ -351,6 +359,11 @@ namespace ompl
 
             /** \brief Publish the found solution to the ProblemDefinition. */
             void publishSolution();
+
+            /** \brief Inject a pending warm-start path as a connected subtree rooted at the start
+             * vertex. Runs at most once per solve(); connects only the maximal collision-free prefix
+             * and registers no goal vertex (no incumbent). \see setWarmStartPath. */
+            void injectWarmStartPath();
 
             // ---
             // Low level primitives.

@@ -45,6 +45,7 @@
 #include "ompl/util/Exception.h"
 #include "ompl/util/String.h"
 #include "ompl/geometric/PathGeometric.h"
+#include "ompl/base/ScopedState.h"
 #include "ompl/base/objectives/PathLengthOptimizationObjective.h"
 
 #include "ompl/geometric/planners/informedtrees/bitstar/HelperFunctions.h"
@@ -347,6 +348,10 @@ namespace ompl
             {
                 queuePtr_->insertOutgoingEdgesOfStartVertices();
             }
+
+            // Seed the tree with any warm-start path before searching. Safe to call every solve();
+            // it injects at most once and no-ops without a pending path or a start.
+            this->injectWarmStartPath();
 
             /* Iterate as long as:
               - We're allowed (ptc == false && stopLoop_ == false), AND
@@ -973,6 +978,70 @@ namespace ompl
                 }
             }
             // No else, the goal didn't change
+        }
+
+        void BITstar::setWarmStartPath(const std::vector<const ompl::base::State *> &path)
+        {
+            // Copy the states now (the caller's states need not outlive this call). ScopedState
+            // manages its own memory, so the stored path is self-cleaning.
+            std::vector<ompl::base::ScopedState<>> copies;
+            copies.reserve(path.size());
+            for (const auto *state : path)
+            {
+                ompl::base::ScopedState<> copy(Planner::si_->getStateSpace());
+                copy = state;
+                copies.push_back(copy);
+            }
+            graphPtr_->setWarmStartPath(std::move(copies));
+        }
+
+        void BITstar::injectWarmStartPath()
+        {
+            // Nothing to do without a pending path or a start to root it at.
+            if (!graphPtr_->hasUnconsumedWarmStartPath() || !graphPtr_->hasAStart())
+            {
+                return;
+            }
+
+            // Consume up front so a failed or partial injection is never retried on a later slice.
+            graphPtr_->markWarmStartConsumed();
+
+            const auto &path = graphPtr_->warmStartPath();
+
+            // The first path state is the start; connect from the start vertex onward. Need at least
+            // one interior/goal state to form an edge.
+            if (path.size() < 2u)
+            {
+                return;
+            }
+
+            // Root the subtree at the (first) start vertex.
+            VertexPtr parent = *graphPtr_->startVerticesBeginConst();
+
+            // Connect each successive state, stopping at the first edge that fails validation so only
+            // the maximal collision-free prefix is injected.
+            for (std::size_t i = 1u; i < path.size(); ++i)
+            {
+                VertexPtr child = graphPtr_->addSampleVertex(path[i].get());
+                VertexConstPtrPair const edge(parent, child);
+
+                // Re-validate against the current world; the previous cycle's path may now collide.
+                if (!this->checkEdge(edge))
+                {
+                    // Drop the unconnected child and stop: the prefix up to here is the subtree.
+                    graphPtr_->removeFromSamples(child);
+                    break;
+                }
+
+                // Connect the child into the tree (as addEdge does, minus the edge-queue insertion:
+                // the first batch rebuilds the queue and re-expands this subtree via its tree edges).
+                ompl::base::Cost const edgeCost = costHelpPtr_->trueEdgeCost(edge);
+                child->addParent(parent, edgeCost);
+                parent->addChild(child);
+                graphPtr_->registerAsVertex(child);
+
+                parent = child;
+            }
         }
 
         void BITstar::goalMessage() const

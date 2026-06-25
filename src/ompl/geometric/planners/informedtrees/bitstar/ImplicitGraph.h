@@ -39,8 +39,11 @@
 
 #include "ompl/base/Cost.h"
 #include "ompl/base/OptimizationObjective.h"
+#include "ompl/base/ScopedState.h"
 #include "ompl/datastructures/NearestNeighbors.h"
 #include "ompl/geometric/planners/informedtrees/BITstar.h"
+
+#include <vector>
 
 namespace ompl
 {
@@ -172,6 +175,23 @@ namespace ompl
 
             /** \brief Add a vertex to the tree, optionally moving it from the set of unconnected samples. */
             void registerAsVertex(const VertexPtr &vertex);
+
+            /** \brief Allocate a tree vertex holding a copy of `state` and add it to the samples
+             * set. Used by warm-start subtree injection. \see BITstar::injectWarmStartPath. */
+            VertexPtr addSampleVertex(const ompl::base::State *state);
+
+            /** \brief Store a warm-start path (states ordered start-to-goal, copied) pending
+             * injection. \see BITstar::setWarmStartPath. */
+            void setWarmStartPath(std::vector<ompl::base::ScopedState<>> &&path);
+
+            /** \brief Whether a warm-start path is stored and not yet consumed. */
+            bool hasUnconsumedWarmStartPath() const;
+
+            /** \brief The pending warm-start path states, ordered start-to-goal. */
+            const std::vector<ompl::base::ScopedState<>> &warmStartPath() const;
+
+            /** \brief Mark the warm-start path consumed so repeated solve() slices inject only once. */
+            void markWarmStartConsumed();
 
             /** \brief Remove a vertex from the tree, can optionally be allowed to move it to the set of unconnected
              * samples if may still be useful. */
@@ -478,6 +498,13 @@ namespace ompl
             /** \brief The average number of allowed failed attempts before giving up on a sample when sampling a new
              * batch. */
             std::size_t averageNumOfAllowedFailedAttemptsWhenSampling_{2u};
+
+            /** \brief A pending warm-start path (states ordered start-to-goal) to inject as a
+             * subtree at the next solve(). Self-managing copies; cleared in reset(). */
+            std::vector<ompl::base::ScopedState<>> warmStartPath_;
+
+            /** \brief Whether the stored warm-start path has already been injected this solve. */
+            bool warmStartConsumed_{false};
         };  // class ImplicitGraph
     }  // namespace geometric
 }  // namespace ompl

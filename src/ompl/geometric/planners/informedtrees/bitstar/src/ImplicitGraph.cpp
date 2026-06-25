@@ -247,6 +247,10 @@ namespace ompl
             // The approximation id.
             *approximationId_ = 1u;
 
+            // Any pending warm-start path (ScopedStates free themselves).
+            warmStartPath_.clear();
+            warmStartConsumed_ = false;
+
             // The various convenience pointers:
             // DO NOT reset the parameters:
             // rewireFactor_
@@ -753,6 +757,41 @@ namespace ompl
             {
                 this->testClosestToGoal(vertex);
             }
+        }
+
+        BITstar::VertexPtr BITstar::ImplicitGraph::addSampleVertex(const ompl::base::State *state)
+        {
+            ASSERT_SETUP
+
+            // Allocate a vertex on the current approximation and copy the given state into it.
+            auto vertex = std::make_shared<Vertex>(spaceInformation_, costHelpPtr_, queuePtr_, approximationId_);
+            spaceInformation_->copyState(vertex->state(), state);
+
+            // Add to the set of samples so it participates in the random geometric graph.
+            this->addToSamples(vertex);
+
+            return vertex;
+        }
+
+        void BITstar::ImplicitGraph::setWarmStartPath(std::vector<ompl::base::ScopedState<>> &&path)
+        {
+            warmStartPath_ = std::move(path);
+            warmStartConsumed_ = false;
+        }
+
+        bool BITstar::ImplicitGraph::hasUnconsumedWarmStartPath() const
+        {
+            return !warmStartConsumed_ && !warmStartPath_.empty();
+        }
+
+        const std::vector<ompl::base::ScopedState<>> &BITstar::ImplicitGraph::warmStartPath() const
+        {
+            return warmStartPath_;
+        }
+
+        void BITstar::ImplicitGraph::markWarmStartConsumed()
+        {
+            warmStartConsumed_ = true;
         }
 
         unsigned int BITstar::ImplicitGraph::removeFromVertices(const VertexPtr &vertex, bool moveToFree)
